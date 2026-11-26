@@ -1,0 +1,9 @@
+{
+  "service": "probe.demo",
+  "xds_server": "127.0.0.1:18000",
+  "duration": "10m",
+  "processes": 1,
+  "workers_per_process": 1,
+  "requests_per_second_per_process": 1,
+  "request_timeout": "2s"
+}

@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>xDS Snapshot Admin</title>
+  <style>
+    :root { color-scheme: light; --ink:#17212b; --muted:#607080; --line:#dce3e9; --surface:#fff; --canvas:#f3f6f8; --accent:#176b87; --accent-soft:#e6f3f7; --danger:#a33737; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--canvas); font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:24px; padding:20px 28px; background:var(--surface); border-bottom:1px solid var(--line); }
+    h1 { margin:0; font-size:19px; letter-spacing:-.02em; }
+    h2 { margin:0; font-size:14px; }
+    .subtitle,.hint { color:var(--muted); }
+    .subtitle { margin-top:3px; }
+    main { display:grid; grid-template-columns:minmax(270px,360px) minmax(440px,1fr); gap:18px; padding:18px; min-height:calc(100vh - 76px); }
+    .panel { min-width:0; overflow:hidden; background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+    .panel-head { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid var(--line); }
+    .tabs { display:flex; gap:5px; overflow-x:auto; padding:10px 12px 0; }
+    .tab { padding:7px 10px; border:0; border-radius:6px 6px 0 0; background:transparent; color:var(--muted); cursor:pointer; font:inherit; }
+    .tab.active { background:var(--accent-soft); color:var(--accent); font-weight:650; }
+    #resource-list { display:flex; flex-direction:column; gap:7px; max-height:calc(100vh - 245px); min-height:180px; overflow-y:auto; padding:10px; }
+    .resource-item { width:100%; padding:11px 12px; text-align:left; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:7px; cursor:pointer; }
+    .resource-item:hover { border-color:#9db5c2; }
+    .resource-item.selected { border-color:var(--accent); background:var(--accent-soft); }
+    .resource-title { display:block; font-weight:650; overflow-wrap:anywhere; }
+    .resource-summary { display:block; margin-top:4px; color:var(--muted); font-size:12px; }
+    .list-meta { display:flex; justify-content:space-between; padding:9px 16px; border-top:1px solid var(--line); color:var(--muted); font-size:12px; }
+    .editor-wrap { display:flex; flex-direction:column; min-height:65vh; }
+    .editor-meta { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:15px 16px 11px; }
+    .editor-name { min-width:0; }
+    .editor-name strong { display:block; overflow-wrap:anywhere; }
+    .editor-name span { color:var(--muted); font-size:12px; }
+    #resource-form { display:grid; gap:15px; padding:15px 16px; border-top:1px solid var(--line); }
+    .field { display:grid; gap:5px; }
+    .field label,.field-label { font-weight:600; }
+    input,select { width:100%; min-height:37px; padding:7px 9px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); font:inherit; }
+    input:focus,select:focus { outline:2px solid #acd2df; border-color:var(--accent); }
+    .hint { font-size:12px; }
+    .rule-list,.endpoint-list { display:grid; gap:8px; }
+    .rule-row,.endpoint-row { display:grid; grid-template-columns:minmax(100px,1fr) minmax(100px,1fr) auto; gap:7px; align-items:center; }
+    .endpoint-row { grid-template-columns:minmax(100px,1fr) minmax(90px,.55fr) auto; }
+    .row-remove { width:34px; height:34px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--danger); cursor:pointer; font-size:18px; }
+    .editor-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:auto; padding:12px 16px; border-top:1px solid var(--line); }
+    .button-row { display:flex; align-items:center; gap:8px; }
+    button.action { border:1px solid var(--line); border-radius:6px; padding:7px 11px; background:#fff; color:var(--ink); cursor:pointer; font:inherit; }
+    button.action:hover { border-color:#9db5c2; }
+    button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+    button.danger { color:var(--danger); }
+    button:disabled { opacity:.45; cursor:default; }
+    #notice { min-height:20px; color:var(--muted); font-size:12px; }
+    #notice.error { color:var(--danger); }
+    .empty { padding:28px 18px; color:var(--muted); text-align:center; }
+    @media (max-width:820px) { main { grid-template-columns:1fr; } #resource-list { max-height:35vh; } .editor-wrap { min-height:50vh; } header { padding:16px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>xDS Snapshot Admin</h1><div class="subtitle">Create endpoints, clusters, routes, then listeners. Saving writes the resource from these simple fields.</div></div>
+    <button class="action" id="reload">Reload snapshot</button>
+  </header>
+  <main>
+    <section class="panel" aria-label="Snapshot resources">
+      <div class="panel-head"><h2>Resources</h2><button class="action" id="new-resource">New</button></div>
+      <nav class="tabs" aria-label="Resource type">
+        <button class="tab active" data-kind="listeners">Listeners</button>
+        <button class="tab" data-kind="routes">Routes</button>
+        <button class="tab" data-kind="clusters">Clusters</button>
+        <button class="tab" data-kind="endpoints">Endpoints</button>
+      </nav>
+      <div id="resource-list" aria-live="polite"><div class="empty">Loading snapshot…</div></div>
+      <div class="list-meta"><span id="resource-count">0 resources</span><span id="resource-version">version —</span></div>
+    </section>
+    <section class="panel editor-wrap" aria-label="Resource editor">
+      <div class="panel-head"><h2 id="form-title">Resource details</h2><span class="hint">Simple resource form</span></div>
+      <div class="editor-meta"><div class="editor-name"><strong id="selected-name">Select a resource</strong><span id="selected-kind">Choose a resource or click New.</span></div>
+        <div class="button-row"><button class="action danger" id="delete-resource" disabled>Delete</button><button class="action primary" id="save-resource" disabled>Save</button></div>
+      </div>
+      <form id="resource-form"></form>
+      <div class="editor-footer"><span id="notice" role="status"></span><span class="hint">Create in order: endpoints → clusters → routes → listeners.</span></div>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const typeURLs = {
+        listeners: "type.googleapis.com/envoy.config.listener.v3.Listener",
+        routes: "type.googleapis.com/envoy.config.route.v3.RouteConfiguration",
+        clusters: "type.googleapis.com/envoy.config.cluster.v3.Cluster",
+        endpoints: "type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment"
+      };
+      const hcmURL = "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager";
+      const routerURL = "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router";
+      let kind = "listeners", snapshots = {}, versions = {}, selectedName = null, selectedResource = null, isNew = false;
+      const form = document.getElementById("resource-form"), list = document.getElementById("resource-list");
+      const saveButton = document.getElementById("save-resource"), deleteButton = document.getElementById("delete-resource");
+
+      function nameOf(type, resource) { return type === "endpoints" ? resource.cluster_name : resource.name; }
+      function setNotice(text, error = false) {
+        const node = document.getElementById("notice"); node.textContent = text; node.classList.toggle("error", error);
+      }
+      function field(labelText, control, hint = "") {
+        const wrap = document.createElement("div"), label = document.createElement("label");
+        wrap.className = "field"; label.textContent = labelText; label.htmlFor = control.id; wrap.append(label, control);
+        if (hint) { const note = document.createElement("span"); note.className = "hint"; note.textContent = hint; wrap.append(note); }
+        return wrap;
+      }
+      function input(id, value, placeholder = "") {
+        const node = document.createElement("input"); node.id = id; node.value = value || ""; node.placeholder = placeholder; return node;
+      }
+      function select(id, options, value, placeholder) {
+        const node = document.createElement("select"); node.id = id;
+        const first = document.createElement("option"); first.value = ""; first.textContent = placeholder; node.append(first);
+        options.forEach(item => { const option = document.createElement("option"); option.value = item.value; option.textContent = item.label; node.append(option); });
+        node.value = value || ""; return node;
+      }
+      function optionsFor(type) { return (snapshots[type] || []).map(resource => ({ value:nameOf(type, resource), label:nameOf(type, resource) })); }
+      function currentKindSummary(resource) {
+        if (kind === "listeners") return `Route: ${resource.api_listener?.api_listener?.rds?.route_config_name || "inline or unset"}`;
+        if (kind === "routes") {
+          const host = (resource.virtual_hosts || [])[0] || {}, routes = host.routes || [];
+          return `${routes.length} rule${routes.length === 1 ? "" : "s"} · cluster ${routes[0]?.route?.cluster || "unset"}`;
+        }
+        if (kind === "clusters") return `${resource.lb_policy || "ROUND_ROBIN"} · endpoints ${resource.eds_cluster_config?.service_name || "unset"}`;
+        const endpoints = (resource.endpoints || []).flatMap(locality => locality.lb_endpoints || []);
+        return `${endpoints.length} endpoint${endpoints.length === 1 ? "" : "s"}`;
+      }
+      function drawList() {
+        list.replaceChildren();
+        const items = snapshots[kind] || [];
+        if (!items.length) { const empty = document.createElement("div"); empty.className = "empty"; empty.textContent = "No resources in this snapshot."; list.append(empty); }
+        items.forEach(resource => {
+          const name = nameOf(kind, resource) || "Unnamed resource", button = document.createElement("button");
+          button.type = "button"; button.className = "resource-item" + (name === selectedName && !isNew ? " selected" : "");
+          const title = document.createElement("span"), summary = document.createElement("span");
+          title.className = "resource-title"; title.textContent = name; summary.className = "resource-summary"; summary.textContent = currentKindSummary(resource);
+          button.append(title, summary); button.addEventListener("click", () => showResource(resource)); list.append(button);
+        });
+        document.getElementById("resource-count").textContent = `${items.length} resource${items.length === 1 ? "" : "s"}`;
+        document.getElementById("resource-version").textContent = `version ${versions[typeURLs[kind]] || "—"}`;
+      }
+      async function loadSnapshots(selectName = selectedName) {
+        setNotice("Loading snapshot…");
+        try {
+          const kinds = Object.keys(typeURLs);
+          const [responses, versionResponse] = await Promise.all([
+            Promise.all(kinds.map(type => fetch(`/snapshots/${type}`))), fetch("/versions")
+          ]);
+          for (let i = 0; i < responses.length; i++) {
+            if (!responses[i].ok) throw new Error(await responses[i].text());
+            const dump = await responses[i].json(); snapshots[kinds[i]] = dump[typeURLs[kinds[i]]] || [];
+          }
+          if (!versionResponse.ok) throw new Error(await versionResponse.text());
+          versions = await versionResponse.json(); drawList();
+          if (!isNew) {
+            const match = (snapshots[kind] || []).find(resource => nameOf(kind, resource) === selectName);
+            if (match) showResource(match, false);
+            else clearForm();
+          }
+          setNotice("");
+        } catch (error) { setNotice(`Could not load snapshot: ${error.message}`, true); }
+      }
+      function addRuleRow(name = "", value = "") {
+        const row = document.createElement("div"); row.className = "rule-row";
+        const header = input(`header-${Math.random()}`, name, "Header name"), match = input(`match-${Math.random()}`, value, "Exact value");
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "row-remove"; remove.textContent = "×"; remove.title = "Remove header rule"; remove.addEventListener("click", () => row.remove());
+        row.append(header, match, remove); return row;
+      }
+      function addEndpointRow(address = "", port = "") {
+        const row = document.createElement("div"); row.className = "endpoint-row";
+        const ip = input(`ip-${Math.random()}`, address, "IP address"), portInput = input(`port-${Math.random()}`, port, "Port");
+        ip.inputMode = "url"; portInput.inputMode = "numeric";
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "row-remove"; remove.textContent = "×"; remove.title = "Remove endpoint"; remove.addEventListener("click", () => row.remove());
+        row.append(ip, portInput, remove); return row;
+      }
+      function showResource(resource, redraw = true) {
+        selectedResource = resource; selectedName = nameOf(kind, resource); isNew = false;
+        document.getElementById("selected-name").textContent = selectedName || "Unnamed resource";
+        document.getElementById("selected-kind").textContent = `${kind.slice(0, -1)} · connected to its child resource below`;
+        saveButton.disabled = false; deleteButton.disabled = false; renderForm(resource); if (redraw) drawList();
+      }
+      function clearForm() {
+        selectedResource = null; selectedName = null; isNew = false; form.replaceChildren();
+        document.getElementById("selected-name").textContent = "Select a resource";
+        document.getElementById("selected-kind").textContent = "Choose a resource or click New.";
+        saveButton.disabled = true; deleteButton.disabled = true; drawList();
+      }
+      function newResource() {
+        isNew = true; selectedResource = null; selectedName = null;
+        document.getElementById("selected-name").textContent = "New resource";
+        document.getElementById("selected-kind").textContent = "Fill in the few required fields below.";
+        saveButton.disabled = false; deleteButton.disabled = true; renderForm(null); drawList();
+      }
+      function renderForm(resource) {
+        form.replaceChildren();
+        const baseName = kind === "endpoints" ? resource?.cluster_name : resource?.name;
+        const nameInput = input("resource-name", baseName || "", `e.g. ${kind === "endpoints" ? "probe-cluster" : "new-" + kind.slice(0, -1)}`);
+        form.append(field(kind === "endpoints" ? "Endpoint set name" : "Name", nameInput));
+
+        if (kind === "listeners") {
+          const routeValue = resource?.api_listener?.api_listener?.rds?.route_config_name || "";
+          form.append(field("Route", select("child-route", optionsFor("routes"), routeValue, "Select an existing route"), "Connect this listener to a route resource."));
+        } else if (kind === "routes") {
+          const vhost = resource?.virtual_hosts?.[0] || {}, route = vhost.routes?.[0] || {};
+          const clusterValue = route.route?.cluster || route.route?.weighted_clusters?.clusters?.[0]?.name || "";
+          form.append(field("Cluster", select("child-cluster", optionsFor("clusters"), clusterValue, "Select an existing cluster"), "The route sends matching RPCs to this cluster. Domain defaults to *."));
+          const ruleSection = document.createElement("div"), ruleHead = document.createElement("div"), ruleLabel = document.createElement("div"), add = document.createElement("button"), ruleList = document.createElement("div");
+          ruleSection.className = "field"; ruleHead.className = "button-row"; ruleLabel.className = "field-label"; ruleLabel.textContent = "Optional header matches";
+          add.type = "button"; add.className = "action"; add.textContent = "Add header"; ruleList.className = "rule-list";
+          const currentRules = route.match?.headers || [];
+          currentRules.forEach(header => ruleList.append(addRuleRow(header.name, header.exact_match || "")));
+          add.addEventListener("click", () => ruleList.append(addRuleRow())); ruleHead.append(ruleLabel, add); ruleSection.append(ruleHead, ruleList);
+          form.append(ruleSection);
+        } else if (kind === "clusters") {
+          const policy = resource?.lb_policy || "ROUND_ROBIN";
+          const policyOptions = ["ROUND_ROBIN", "RING_HASH"].map(value => ({ value, label:value.replaceAll("_", " ") }));
+          form.append(field("Load balancing policy", select("lb-policy", policyOptions, policy, "Choose a policy")));
+          const endpointName = resource?.eds_cluster_config?.service_name || "";
+          form.append(field("Endpoint set", select("child-endpoints", optionsFor("endpoints"), endpointName, "Select an existing endpoint set"), "Connect this cluster to its endpoint resource."));
+        } else {
+          const entries = (resource?.endpoints || []).flatMap(locality => locality.lb_endpoints || []).map(item => {
+            const socket = item.endpoint?.address?.socket_address || {};
+            return { address:socket.address || "", port:socket.port_value || "" };
+          });
+          const endpointSection = document.createElement("div"), endpointHead = document.createElement("div"), endpointLabel = document.createElement("div"), add = document.createElement("button"), endpointList = document.createElement("div");
+          endpointSection.className = "field"; endpointHead.className = "button-row"; endpointLabel.className = "field-label"; endpointLabel.textContent = "IP addresses and ports";
+          add.type = "button"; add.className = "action"; add.textContent = "Add endpoint"; endpointList.className = "endpoint-list";
+          (entries.length ? entries : [{ address:"", port:"" }]).forEach(item => endpointList.append(addEndpointRow(item.address, item.port)));
+          add.addEventListener("click", () => endpointList.append(addEndpointRow())); endpointHead.append(endpointLabel, add);
+          endpointSection.append(endpointHead, endpointList); form.append(endpointSection);
+        }
+      }
+      function buildResource() {
+        const name = document.getElementById("resource-name").value.trim();
+        if (!name) throw new Error("Name is required.");
+        if (kind === "listeners") {
+          const routeName = document.getElementById("child-route").value;
+          if (!routeName) throw new Error("Select an existing route.");
+          const typedConfig = { "@type":hcmURL, rds:{ config_source:{ ads:{} }, route_config_name:routeName }, http_filters:[{ name:"envoy.filters.http.router", typed_config:{ "@type":routerURL } }] };
+          return { name, api_listener:{ api_listener:typedConfig }, filter_chains:[{ filters:[{ name:"envoy.filters.network.http_connection_manager", typed_config:typedConfig }] }] };
+        }
+        if (kind === "routes") {
+          const clusterName = document.getElementById("child-cluster").value;
+          if (!clusterName) throw new Error("Select an existing cluster.");
+          const headers = [...form.querySelectorAll(".rule-row")].map(row => {
+            const [header, value] = row.querySelectorAll("input");
+            if (!header.value.trim() && !value.value.trim()) return null;
+            if (!header.value.trim() || !value.value.trim()) throw new Error("Each header match needs both a name and an exact value.");
+            return { name:header.value.trim(), exact_match:value.value };
+          }).filter(Boolean);
+          return { name, virtual_hosts:[{ name:`${name}-vhost`, domains:["*"], routes:[{ name:`${name}-route`, match:{ prefix:"/", ...(headers.length ? { headers } : {}) }, route:{ cluster:clusterName } }] }] };
+        }
+        if (kind === "clusters") {
+          const endpointName = document.getElementById("child-endpoints").value;
+          if (!endpointName) throw new Error("Select an existing endpoint set.");
+          return { name, type:"EDS", connect_timeout:"2s", lb_policy:document.getElementById("lb-policy").value, eds_cluster_config:{ eds_config:{ ads:{}, resource_api_version:"V3" }, service_name:endpointName } };
+        }
+        const endpoints = [...form.querySelectorAll(".endpoint-row")].map(row => {
+          const [ipInput, portInput] = row.querySelectorAll("input"), address = ipInput.value.trim(), port = Number(portInput.value);
+          if (!address && !portInput.value.trim()) return null;
+          if (!isIPAddress(address)) throw new Error(`Enter a valid IP address for ${address || "the endpoint"}.`);
+          if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Enter a valid port for ${address}.`);
+          return { endpoint:{ address:{ socket_address:{ protocol:"TCP", address, port_value:port } } } };
+        }).filter(Boolean);
+        if (!endpoints.length) throw new Error("Add at least one IP address and port.");
+        return { cluster_name:name, endpoints:[{ locality:{ region:"local", zone:"local", sub_zone:"default" }, load_balancing_weight:1, lb_endpoints:endpoints }] };
+      }
+      function isIPAddress(value) {
+        const ipv4 = value.split(".");
+        if (ipv4.length === 4 && ipv4.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return true;
+        return value.includes(":") && /^[0-9a-fA-F:.]+$/.test(value);
+      }
+      async function saveResource() {
+        let resource;
+        try { resource = buildResource(); }
+        catch (error) { setNotice(error.message, true); return; }
+        const name = nameOf(kind, resource);
+        if (!isNew && name !== selectedName) { setNotice("Changing a resource name is not supported. Delete it and create a new one.", true); return; }
+        saveButton.disabled = true; setNotice("Publishing resource…");
+        try {
+          const response = await fetch(`/v1/${kind}/${encodeURIComponent(name)}`, { method:"PUT", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(resource) });
+          if (!response.ok) throw new Error((await response.text()) || response.statusText);
+          isNew = false; selectedName = name; await loadSnapshots(name); setNotice(`Saved ${name}.`);
+        } catch (error) { setNotice(`Save failed: ${error.message}`, true); }
+        finally { saveButton.disabled = false; }
+      }
+      async function deleteResource() {
+        if (!selectedName || !window.confirm(`Delete ${kind.slice(0, -1)} “${selectedName}”?`)) return;
+        deleteButton.disabled = true; setNotice("Deleting resource…");
+        try {
+          const response = await fetch(`/v1/${kind}/${encodeURIComponent(selectedName)}`, { method:"DELETE" });
+          if (!response.ok) throw new Error((await response.text()) || response.statusText);
+          selectedName = null; selectedResource = null; clearForm(); await loadSnapshots(null); setNotice("Resource deleted.");
+        } catch (error) { setNotice(`Delete failed: ${error.message}`, true); deleteButton.disabled = false; }
+      }
+      document.querySelectorAll(".tab").forEach(button => button.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(tab => tab.classList.toggle("active", tab === button));
+        kind = button.dataset.kind; clearForm(); loadSnapshots(null);
+      }));
+      document.getElementById("reload").addEventListener("click", () => loadSnapshots());
+      document.getElementById("new-resource").addEventListener("click", newResource);
+      saveButton.addEventListener("click", saveResource); deleteButton.addEventListener("click", deleteResource);
+      form.addEventListener("submit", event => { event.preventDefault(); saveResource(); });
+      loadSnapshots(null);
+    })();
+  </script>
+</body>
+</html>
