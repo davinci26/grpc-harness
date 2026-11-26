@@ -60,7 +60,7 @@ cd grpc-harness && go run ./cmd/prober -profile examples/load-profile.json
 
 The prober starts the number of separate processes configured by the profile. Each process creates one grpc-go xDS client channel and runs unary `grpc.health.v1.Health/Check` calls for the configured service. The checked-in profile targets `probe.demo` for 10 minutes, with one process, one worker, and one request per second.
 
-The profile launcher generates an xDS bootstrap configuration for each process and sets `GRPC_XDS_BOOTSTRAP_CONFIG` for it. Run the prober through the profile launcher to get this bootstrap automatically.
+Each process builds its xDS resolver from the profile and its node ID, so the prober can be run directly without setting xDS bootstrap environment variables.
 
 ## Configure a run
 

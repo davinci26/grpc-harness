@@ -22,7 +22,7 @@ import (
 	grpcpeer "google.golang.org/grpc/peer"
 	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
-	_ "google.golang.org/grpc/xds"
+	"google.golang.org/grpc/xds"
 )
 
 type profile struct {
@@ -120,15 +120,10 @@ func runProcesses(profilePath string, load profile, debug bool) error {
 		if count > 1 {
 			nodeID = fmt.Sprintf("prober-%02d", i+1)
 		}
-		bootstrap, err := bootstrapConfig(load, nodeID)
-		if err != nil {
-			return err
-		}
 		command := exec.Command(executable, "-child", "-profile", profilePath, "-node-id", nodeID)
 		if debug {
 			command.Args = append(command.Args, "-debug")
 		}
-		command.Env = withBootstrapEnv(os.Environ(), bootstrap)
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
 		commands = append(commands, command)
@@ -192,16 +187,22 @@ func runProbe(load profile, nodeID string, debug bool) error {
 	if load.RequestsPerSecond < 0 || load.RequestsPerSecond > 1_000_000_000 {
 		return fmt.Errorf("requests_per_second_per_process must be between 0 and 1000000000")
 	}
-	if os.Getenv("GRPC_XDS_BOOTSTRAP_CONFIG") == "" && os.Getenv("GRPC_XDS_BOOTSTRAP") == "" {
-		return fmt.Errorf("xDS bootstrap config is missing; start the prober through its profile launcher")
-	}
 	setLogger(debug, nodeID)
 	slog.Info("probe_started", "service", load.Service, "xds_server", load.XDSServer, "duration", duration.String(), "workers", load.WorkersPerProcess, "requests_per_second_limit", load.RequestsPerSecond)
 
+	bootstrap, err := bootstrapConfig(load, nodeID)
+	if err != nil {
+		return err
+	}
+	resolver, err := xds.NewXDSResolverWithConfigForTesting(bootstrap)
+	if err != nil {
+		return fmt.Errorf("create xDS resolver: %w", err)
+	}
 	connections := &clientStats{remotes: make(map[string]int)}
 	conn, err := grpc.NewClient("xds:///"+load.Service,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(connections),
+		grpc.WithResolvers(resolver),
 	)
 	if err != nil {
 		return err
@@ -278,17 +279,6 @@ func bootstrapConfig(load profile, nodeID string) ([]byte, error) {
 		}},
 		"node": map[string]string{"id": nodeID, "cluster": "local-probers"},
 	})
-}
-
-func withBootstrapEnv(environment []string, bootstrap []byte) []string {
-	filtered := make([]string, 0, len(environment)+1)
-	for _, variable := range environment {
-		if strings.HasPrefix(variable, "GRPC_XDS_BOOTSTRAP=") || strings.HasPrefix(variable, "GRPC_XDS_BOOTSTRAP_CONFIG=") {
-			continue
-		}
-		filtered = append(filtered, variable)
-	}
-	return append(filtered, "GRPC_XDS_BOOTSTRAP_CONFIG="+string(bootstrap))
 }
 
 func setLogger(debug bool, nodeID string) {
